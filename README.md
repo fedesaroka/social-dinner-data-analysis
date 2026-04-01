@@ -10,7 +10,7 @@ El objetivo es analizar comportamientos, patrones de asistencia y dinámicas soc
 
 La aplicación está disponible online en:
 
-👉 [https://lamosca.pythonanywhere.com/](url)
+👉 [Ver app en vivo](https://lamosca.pythonanywhere.com/)
 
 Permite registrar nuevas cenas, cargar asistencia y almacenar los datos automáticamente en Google Sheets.
 
