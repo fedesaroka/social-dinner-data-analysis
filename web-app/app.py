@@ -27,7 +27,7 @@ class Usuario(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    if user_id == USUARIO:
+    if user_id == USUARIO or user_id == "invitado":
         return Usuario(user_id)
     return None
 
@@ -104,6 +104,12 @@ def login():
             error = "Usuario o contraseña incorrectos"
     return render_template('login.html', error=error)
 
+@app.route('/login-invitado')
+def login_invitado():
+    user = Usuario("invitado")
+    login_user(user, remember=False)
+    return redirect(url_for('index'))
+
 @app.route('/logout')
 @login_required
 def logout():
@@ -139,11 +145,14 @@ def index():
 
     return render_template('index.html', asistentes=ASISTENTES, razones=RAZONES_FALTA,
                            comidas=categorias, casas=casas, id_cena=id_cena, fecha=fecha,
-                           ultima_cena=ultima_cena)
+                           ultima_cena=ultima_cena, es_invitado=current_user.id == "invitado")
 
 @app.route('/guardar', methods=['POST'])
 @login_required
 def guardar():
+    if current_user.id == "invitado":
+        return jsonify({"status": "error", "message": "Modo invitado: los datos no se guardan"}), 403
+
     try:
         data = request.json
         config = DriveConfiguration()

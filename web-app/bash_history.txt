@@ -1,8 +1,0 @@
-lsvirtualenv
-workon asistencia_mosca
-pip install Flask-Login
-exit
-lsvirtualenv 
-workon asistencia_mosca
-pip show flask-login
-exit

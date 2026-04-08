@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro de Cena</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#4338ca">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="La Mosca">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+
+<div class="bg-white rounded-2xl shadow-lg w-full max-w-2xl p-8">
+
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-2">
+        <h1 class="text-3xl font-bold text-indigo-700">🍽️ Registro de Cena</h1>
+        <a href="/logout" class="text-sm text-gray-400 hover:text-red-500 transition">Cerrar sesión →</a>
+    </div>
+
+    {% if es_invitado %}
+    <div class="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-sm text-yellow-800 text-center font-semibold">
+        👀 Estás como invitado — Los datos que ingreses <u>no se guardarán</u>.
+    </div>
+    {% endif %}
+
+    <div class="mb-8">
+        <div class="flex justify-between text-xs text-gray-500 mb-1">
+            <span>Inicio</span>
+            <span>Asistencias</span>
+            <span>Cena</span>
+            <span>Faltas</span>
+            <span>Participantes</span>
+            <span>Resumen</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2">
+            <div id="progress-bar" class="bg-indigo-600 h-2 rounded-full transition-all duration-300" style="width: 16.6%"></div>
+        </div>
+        <p id="step-label" class="text-center text-sm text-indigo-600 font-semibold mt-1">Paso 1 de 6</p>
+    </div>
+
+        <!-- Resumen última cena -->
+    {% if ultima_cena and not es_invitado %}
+    <div class="mb-6 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+        <h3 class="text-sm font-semibold text-indigo-600 mb-3">📌 Última cena cargada</h3>
+        <div class="grid grid-cols-2 gap-2 text-sm text-gray-700">
+            <div class="bg-white rounded-lg px-3 py-2 border border-indigo-100">
+                <span class="text-xs text-gray-400 block">ID</span>
+                <span class="font-semibold">#{{ ultima_cena.id }}</span>
+            </div>
+            <div class="bg-white rounded-lg px-3 py-2 border border-indigo-100">
+                <span class="text-xs text-gray-400 block">Fecha</span>
+                <span class="font-semibold">{{ ultima_cena.fecha }}</span>
+            </div>
+            <div class="bg-white rounded-lg px-3 py-2 border border-indigo-100">
+                <span class="text-xs text-gray-400 block">Comida</span>
+                <span class="font-semibold">{{ ultima_cena.comida }}</span>
+            </div>
+            <div class="bg-white rounded-lg px-3 py-2 border border-indigo-100">
+                <span class="text-xs text-gray-400 block">Casa</span>
+                <span class="font-semibold">{{ ultima_cena.casa or '—' }}</span>
+            </div>
+            <div class="bg-white rounded-lg px-3 py-2 border border-indigo-100">
+                <span class="text-xs text-gray-400 block">Tema</span>
+                <span class="font-semibold">{{ ultima_cena.tema or '—' }}</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- PASO 1: Inicio -->
+    <div id="step-1" class="step">
+        <h2 class="text-xl font-semibold text-gray-700 mb-6">📋 Información General</h2>
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-600 mb-1">ID de Cena</label>
+            <input type="number" id="id_cena" value="{{ id_cena }}"
+                class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-600 mb-1">Fecha</label>
+            <input type="date" id="fecha" value="{{ fecha }}"
+                class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+    </div>
+
+    <!-- PASO 2: Asistencias -->
+    <div id="step-2" class="step hidden">
+        <h2 class="text-xl font-semibold text-gray-700 mb-6">✅ Asistencias</h2>
+        <div class="space-y-3">
+            {% for asistente in asistentes %}
+            <div class="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
+                <span class="text-gray-700 font-medium">{{ asistente }}</span>
+                <div class="flex gap-2">
+                    <button type="button" onclick="setAsistencia('{{ asistente }}', 1, this)"
+                        class="asistencia-btn px-3 py-1 rounded-lg text-sm font-semibold border border-gray-300 hover:bg-green-100 transition">✅</button>
+                    <button type="button" onclick="setAsistencia('{{ asistente }}', 0.5, this)"
+                        class="asistencia-btn px-3 py-1 rounded-lg text-sm font-semibold border border-gray-300 hover:bg-yellow-100 transition">½</button>
+                    <button type="button" onclick="setAsistencia('{{ asistente }}', 0, this)"
+                        class="asistencia-btn px-3 py-1 rounded-lg text-sm font-semibold border border-gray-300 hover:bg-red-100 transition">❌</button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+
+    <!-- PASO 3: Datos de la Cena -->
+    <div id="step-3" class="step hidden">
+        <h2 class="text-xl font-semibold text-gray-700 mb-6">🍴 Datos de la Cena</h2>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">¿Hubo quórum?</label>
+                <div id="quorum-display" class="w-full border border-gray-200 bg-gray-50 rounded-lg px-4 py-2 text-gray-700 font-semibold"></div>
+                <input type="hidden" id="quorum">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">¿Se realizó?</label>
+                <div id="realizada-display" class="w-full border border-gray-200 bg-gray-50 rounded-lg px-4 py-2 text-gray-700 font-semibold"></div>
+                <input type="hidden" id="realizada">
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-600 mb-1">Comida</label>
+            <input type="text" id="comida" placeholder="Detalles sobre la comida"
+                class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-600 mb-1">Categoría de comida</label>
+            <div class="flex gap-2">
+                <select id="categoria_comida_select" onchange="sincronizarCategoria()"
+                    class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <option value="">-- Seleccionar --</option>
+                    {% for categoria in comidas %}
+                    <option value="{{ categoria }}">{{ categoria }}</option>
+                    {% endfor %}
+                    <option value="__nueva__">+ Nueva categoría...</option>
+                </select>
+                <input type="text" id="categoria_comida_nueva" placeholder="Nueva categoría"
+                    class="hidden w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-600 mb-1">Tipo de comida</label>
+            <select id="tipo_comida"
+                class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="Cocinada">Cocinada</option>
+                <option value="Comprada">Comprada</option>
+            </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Precio ($)</label>
+                <input type="number" id="precio" placeholder="0"
+                    class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Cantidad de personas</label>
+                <input type="number" id="cant_personas" placeholder="0"
+                    class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-600 mb-1">Casa</label>
+            <select id="casa" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="">-- Seleccionar casa --</option>
+                {% for casa in casas %}
+                <option value="{{ casa }}">{{ casa }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-600 mb-1">Tema</label>
+            <input type="text" id="tema" placeholder="Tema de la cena"
+                class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-600 mb-1">Postre</label>
+            <input type="text" id="postre" placeholder="Postre"
+                class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+    </div>
+
+    <!-- PASO 4: Faltas -->
+    <div id="step-4" class="step hidden">
+        <h2 class="text-xl font-semibold text-gray-700 mb-6">❌ Faltas</h2>
+        <div id="faltas-container" class="space-y-4"></div>
+        <button type="button" onclick="agregarFalta()"
+            class="mt-4 w-full border-2 border-dashed border-indigo-300 text-indigo-500 rounded-lg py-2 hover:bg-indigo-50 transition font-semibold">
+            + Agregar Falta
+        </button>
+    </div>
+
+    <!-- PASO 5: Participantes -->
+    <div id="step-5" class="step hidden">
+        <h2 class="text-xl font-semibold text-gray-700 mb-6">🚗 Participantes</h2>
+        <div id="participantes-container" class="space-y-4"></div>
+        <button type="button" onclick="agregarParticipante()"
+            class="mt-4 w-full border-2 border-dashed border-indigo-300 text-indigo-500 rounded-lg py-2 hover:bg-indigo-50 transition font-semibold">
+            + Agregar Participante
+        </button>
+    </div>
+
+    <!-- PASO 6: Resumen -->
+    <div id="step-6" class="step hidden">
+        <h2 class="text-xl font-semibold text-gray-700 mb-6">📝 Resumen</h2>
+        <div id="resumen-container" class="space-y-3 text-sm text-gray-700 bg-gray-50 rounded-xl p-4"></div>
+
+        <!-- Mensaje de resultado -->
+        <div id="resultado" class="hidden mt-4 p-4 rounded-lg text-center font-semibold"></div>
+    </div>
+
+    <!-- Botones de navegación -->
+    <div class="flex justify-between mt-8">
+        <button id="btn-anterior" onclick="cambiarPaso(-1)"
+            class="hidden px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-semibold">
+            ← Anterior
+        </button>
+        <div></div>
+        <button id="btn-siguiente" onclick="cambiarPaso(1)"
+            class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-semibold">
+            Siguiente →
+        </button>
+        <button id="btn-guardar" onclick="guardar()"
+            class="hidden px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold">
+            💾 Guardar
+        </button>
+    </div>
+</div>
+
+<script>
+    // ── Datos desde Flask ────────────────────────────────────────────────────
+    const ASISTENTES = {{ asistentes | tojson }};
+    const RAZONES    = {{ razones | tojson }};
+    const CASAS      = {{ casas | tojson }};
+
+    // ── Estado global ────────────────────────────────────────────────────────
+    let pasoActual = 1;
+    const TOTAL_PASOS = 6;
+    const asistencias = {};
+    ASISTENTES.forEach(a => asistencias[a] = 0);
+
+
+    // ── Navegación ───────────────────────────────────────────────────────────
+
+    // Variable global para trackear si se salteó el paso 3
+    let saltearPaso3 = false;
+
+    function cambiarPaso(direccion) {
+        if (direccion === 1 && !validarPasoActual()) return;
+
+        // ── Lógica para saltear paso 3 si no hay asistentes ──
+        if (pasoActual === 2 && direccion === 1) {
+            const hayAsistentes = Object.values(asistencias).some(v => v > 0);
+            saltearPaso3 = !hayAsistentes;
+        }
+
+        document.getElementById(`step-${pasoActual}`).classList.add('hidden');
+        pasoActual += direccion;
+
+        // Saltear paso 3 si corresponde
+        if (pasoActual === 3 && saltearPaso3) {
+            pasoActual += 3; // saltar
+        }
+
+        document.getElementById(`step-${pasoActual}`).classList.remove('hidden');
+
+        // Barra de progreso
+        const porcentaje = (pasoActual / TOTAL_PASOS) * 100;
+        document.getElementById('progress-bar').style.width = `${porcentaje}%`;
+        document.getElementById('step-label').textContent = `Paso ${pasoActual} de ${TOTAL_PASOS}`;
+
+        // Botones
+        document.getElementById('btn-anterior').classList.toggle('hidden', pasoActual === 1);
+        document.getElementById('btn-siguiente').classList.toggle('hidden', pasoActual === TOTAL_PASOS);
+        document.getElementById('btn-guardar').classList.toggle('hidden', pasoActual !== TOTAL_PASOS);
+
+        // Al entrar al paso 3, calcular cantidad de personas
+        if (pasoActual === 3) calcularCantPersonas();
+
+        // Al entrar al paso 4, generar faltas automáticamente
+        if (pasoActual === 4) generarFaltasAutomaticas();
+
+        // Al entrar al paso 5, generar participantes automáticamente
+        if (pasoActual === 5) generarParticipantesAutomaticos();
+
+        if (pasoActual === TOTAL_PASOS) generarResumen();
+    }
+
+
+
+    // ── Validaciones ─────────────────────────────────────────────────────────
+    function validarPasoActual() {
+        if (pasoActual === 1) {
+            if (!document.getElementById('id_cena').value) {
+                alert('Por favor ingresá el ID de cena.'); return false;
+            }
+            if (!document.getElementById('fecha').value) {
+                alert('Por favor ingresá la fecha.'); return false;
+            }
+        }
+        // Paso 2: sin validación, todos los no marcados ya son 0
+        if (pasoActual === 3) {
+            const comida = obtenerCategoria();
+            if (!comida) { alert('Por favor seleccioná o ingresá una comida.'); return false; }
+            if (!document.getElementById('precio').value) { alert('Por favor ingresá el precio.'); return false; }
+            if (!document.getElementById('casa').value) { alert('Por favor seleccioná la casa.'); return false; }
+        }
+        return true;
+    }
+
+    // ── Asistencias ──────────────────────────────────────────────────────────
+    function setAsistencia(persona, valor, btn) {
+        asistencias[persona] = valor;
+        const fila = btn.closest('div.flex');
+        fila.querySelectorAll('.asistencia-btn').forEach(b => {
+            b.classList.remove('bg-green-200', 'bg-yellow-200', 'bg-red-200', 'border-green-400', 'border-yellow-400', 'border-red-400');
+        });
+        if (valor === 1)   { btn.classList.add('bg-green-200',  'border-green-400'); }
+        if (valor === 0.5) { btn.classList.add('bg-yellow-200', 'border-yellow-400'); }
+        if (valor === 0)   { btn.classList.add('bg-red-200',    'border-red-400'); }
+    }
+
+    function obtenerPresentes() {
+        // Personas con asistencia 1 o 0.5
+        return ASISTENTES.filter(a => asistencias[a] === 1 || asistencias[a] === 0.5);
+    }
+
+    function obtenerAusentes() {
+        // Personas con asistencia 0
+        return ASISTENTES.filter(a => asistencias[a] === 0);
+    }
+
+    // ── Comida ───────────────────────────────────────────────────────────────
+    function sincronizarCategoria() {
+        const sel   = document.getElementById('categoria_comida_select');
+        const input = document.getElementById('categoria_comida_nueva');
+        if (sel.value === '__nueva__') {
+            input.classList.remove('hidden');
+            input.focus();
+        } else {
+            input.classList.add('hidden');
+            input.value = '';
+        }
+    }
+
+    function calcularCantPersonas() {
+        const presentes = obtenerPresentes();
+        const cant = presentes.length;
+
+        // Cantidad de personas
+        document.getElementById('cant_personas').value = cant;
+
+        // Quórum: al menos 6 participantes
+        const huboQuorum = cant >= 6;
+        document.getElementById('quorum').value = huboQuorum;
+        document.getElementById('quorum-display').textContent = huboQuorum ? 'Si' : 'No';
+
+        // Realizada: al menos 1 participante
+        const fueRealizada = cant >= 1;
+        document.getElementById('realizada').value = fueRealizada;
+        document.getElementById('realizada-display').textContent = fueRealizada ? 'Si' : 'No';
+    }
+
+    function obtenerCategoria() {
+        const sel = document.getElementById('categoria_comida_select');
+        if (sel.value === '__nueva__') {
+            return document.getElementById('categoria_comida_nueva').value.trim();
+        }
+        return sel.value;
+    }
+
+    function generarFaltasAutomaticas() {
+        const container = document.getElementById('faltas-container');
+        container.innerHTML = ''; // Limpiar antes de regenerar
+
+        const ausentes = obtenerAusentes();
+        ausentes.forEach(nombre => agregarFalta(nombre));
+    }
+
+    function generarParticipantesAutomaticos() {
+        const container = document.getElementById('participantes-container');
+        container.innerHTML = ''; // Limpiar antes de regenerar
+
+        const presentes = obtenerPresentes();
+        presentes.forEach(nombre => agregarParticipante(nombre));
+    }
+
+    // ── Faltas ───────────────────────────────────────────────────────────────
+    function agregarFalta(nombrePreseleccionado = null) {
+        const container = document.getElementById('faltas-container');
+        const idx = container.children.length;
+
+        const opcionesAsistentes = ASISTENTES.map(a =>
+            `<option value="${a}" ${a === nombrePreseleccionado ? 'selected' : ''}>${a}</option>`
+        ).join('');
+        const opcionesRazones = RAZONES.map(r =>
+            `<option value="${r}">${r}</option>`
+        ).join('');
+
+        const div = document.createElement('div');
+        div.className = 'bg-gray-50 rounded-xl p-4 space-y-2 border border-gray-200';
+        div.innerHTML = `
+            <div class="flex justify-between items-center mb-1">
+                <span class="font-semibold text-gray-600">Falta #${idx + 1}</span>
+                <button type="button" onclick="this.closest('div.bg-gray-50').remove(); renumerarFaltas()"
+                    class="text-red-400 hover:text-red-600 text-sm">✕ Eliminar</button>
+            </div>
+            <select class="falta-nombre w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="">-- Nombre --</option>
+                ${opcionesAsistentes}
+            </select>
+            <select class="falta-razon w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="">-- Razón --</option>
+                ${opcionesRazones}
+            </select>
+            <input type="text" class="falta-descripcion w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                placeholder="Descripción (opcional)">
+        `;
+        container.appendChild(div);
+    }
+
+    function renumerarFaltas() {
+        document.querySelectorAll('#faltas-container > div').forEach((div, i) => {
+            div.querySelector('span').textContent = `Falta #${i + 1}`;
+        });
+    }
+
+    // ── Participantes ────────────────────────────────────────────────────────
+    function agregarParticipante(nombrePreseleccionado = null) {
+        const container = document.getElementById('participantes-container');
+        const idx = container.children.length;
+
+        const opcionesAsistentes = ASISTENTES.map(a =>
+            `<option value="${a}" ${a === nombrePreseleccionado ? 'selected' : ''}>${a}</option>`
+        ).join('');
+        const opcionesCasas = CASAS.map(c =>
+            `<option value="${c}">${c}</option>`
+        ).join('');
+
+        const div = document.createElement('div');
+        div.className = 'bg-gray-50 rounded-xl p-4 space-y-2 border border-gray-200';
+        div.innerHTML = `
+            <div class="flex justify-between items-center mb-1">
+                <span class="font-semibold text-gray-600">Participante #${idx + 1}</span>
+                <button type="button" onclick="this.closest('div.bg-gray-50').remove(); renumerarParticipantes()"
+                    class="text-red-400 hover:text-red-600 text-sm">✕ Eliminar</button>
+            </div>
+            <select class="part-nombre w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="">-- Nombre --</option>
+                ${opcionesAsistentes}
+            </select>
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="text-xs text-gray-500 mb-1 block">Ida desde</label>
+                    <select class="part-ida w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                        <option value="">-- Casa --</option>
+                        ${opcionesCasas}
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-500 mb-1 block">Vuelta a</label>
+                    <select class="part-vuelta w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                        <option value="">-- Casa --</option>
+                        ${opcionesCasas}
+                    </select>
+                </div>
+            </div>
+            <input type="text" class="part-extras w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                placeholder="Extras (opcional)">
+        `;
+        container.appendChild(div);
+    }
+
+    function renumerarParticipantes() {
+        document.querySelectorAll('#participantes-container > div').forEach((div, i) => {
+            div.querySelector('span').textContent = `Participante #${i + 1}`;
+        });
+    }
+
+    // ── Resumen ──────────────────────────────────────────────────────────────
+    function generarResumen() {
+        const container = document.getElementById('resumen-container');
+        container.innerHTML = '';
+
+        const seccion = (titulo, contenido) => `
+            <div class="mb-3">
+                <p class="font-bold text-indigo-700 mb-1">${titulo}</p>
+                ${contenido}
+            </div>`;
+
+        // Info general
+        container.innerHTML += seccion('📋 General', `
+            <p>ID Cena: <strong>${document.getElementById('id_cena').value}</strong></p>
+            <p>Fecha: <strong>${document.getElementById('fecha').value}</strong></p>
+        `);
+
+        // Asistencias
+        const asistenciasHTML = ASISTENTES.map(a => {
+            const v = asistencias[a];
+            const emoji = v === 1 ? '✅' : v === 0.5 ? '½' : '❌';
+            return `<span class="inline-block bg-white border rounded px-2 py-1 mr-1 mb-1">${emoji} ${a}</span>`;
+        }).join('');
+        container.innerHTML += seccion('✅ Asistencias', asistenciasHTML);
+
+        // Cena
+        container.innerHTML += seccion('🍴 Cena', `
+            <p>Descripción: <strong>${document.getElementById('comida').value}</strong></p>
+            <p>Categoría: <strong>${obtenerCategoria()}</strong></p>
+            <p>Tipo: <strong>${document.getElementById('tipo_comida').value}</strong></p>
+            <p>Precio: <strong>$${document.getElementById('precio').value}</strong></p>
+            <p>Casa: <strong>${document.getElementById('casa').value}</strong></p>
+            <p>Quórum: <strong>${document.getElementById('quorum').value === 'true' ? 'Sí' : 'No'}</strong></p>
+            <p>Realizada: <strong>${document.getElementById('realizada').value === 'true' ? 'Sí' : 'No'}</strong></p>
+            <p>Tema: <strong>${document.getElementById('tema').value || '-'}</strong></p>
+            <p>Postre: <strong>${document.getElementById('postre').value || '-'}</strong></p>
+            <p>Cantidad personas: <strong>${document.getElementById('cant_personas').value}</strong></p>
+        `);
+
+
+        // Faltas
+        const faltasDivs = document.querySelectorAll('#faltas-container > div');
+        if (faltasDivs.length > 0) {
+            const faltasHTML = Array.from(faltasDivs).map(div => {
+                const nombre = div.querySelector('.falta-nombre').value;
+                const razon  = div.querySelector('.falta-razon').value;
+                const desc   = div.querySelector('.falta-descripcion').value;
+                return `<p>• <strong>${nombre}</strong> — ${razon}${desc ? ` (${desc})` : ''}</p>`;
+            }).join('');
+            container.innerHTML += seccion('❌ Faltas', faltasHTML);
+        }
+
+        // Participantes
+        const partDivs = document.querySelectorAll('#participantes-container > div');
+        if (partDivs.length > 0) {
+            const partHTML = Array.from(partDivs).map(div => {
+                const nombre = div.querySelector('.part-nombre').value;
+                const ida    = div.querySelector('.part-ida').value;
+                const vuelta = div.querySelector('.part-vuelta').value;
+                const extras = div.querySelector('.part-extras').value;
+                return `<p>• <strong>${nombre}</strong> — Ida: ${ida || '-'}, Vuelta: ${vuelta || '-'}${extras ? `, Extras: ${extras}` : ''}</p>`;
+            }).join('');
+            container.innerHTML += seccion('🚗 Participantes', partHTML);
+        }
+    }
+
+    // ── Guardar ──────────────────────────────────────────────────────────────
+    const ES_INVITADO = {{ 'true' if es_invitado else 'false' }};
+
+    async function guardar() {
+        if (ES_INVITADO) {
+            const div = document.getElementById('resultado');
+            div.classList.remove('hidden');
+            div.className = 'mt-4 p-4 rounded-lg text-center font-semibold bg-yellow-100 text-yellow-700';
+            div.textContent = '👀 Modo invitado: los datos no fueron guardados.';
+            return;
+        }
+
+        const faltas = Array.from(document.querySelectorAll('#faltas-container > div')).map(div => ({
+            nombre:      div.querySelector('.falta-nombre').value,
+            razon:       div.querySelector('.falta-razon').value,
+            descripcion: div.querySelector('.falta-descripcion').value,
+        }));
+
+        const participantes = Array.from(document.querySelectorAll('#participantes-container > div')).map(div => ({
+            nombre: div.querySelector('.part-nombre').value,
+            ida:    div.querySelector('.part-ida').value,
+            vuelta: div.querySelector('.part-vuelta').value,
+            extras: div.querySelector('.part-extras').value,
+        }));
+
+        const payload = {
+            id_cena:          parseInt(document.getElementById('id_cena').value),
+            fecha:            document.getElementById('fecha').value,
+            quorum:           document.getElementById('quorum').value === 'true',
+            realizada:        document.getElementById('realizada').value === 'true',
+            comida:           document.getElementById('comida').value,        // ← texto libre
+            categoria_comida: obtenerCategoria(),                              // ← desplegable
+            tipo_comida:      document.getElementById('tipo_comida').value,   // ← cocinada/comprada
+            precio:           parseFloat(document.getElementById('precio').value),
+            casa:             document.getElementById('casa').value,
+            tema:             document.getElementById('tema').value,
+            postre:           document.getElementById('postre').value,
+            cant_personas:    parseInt(document.getElementById('cant_personas').value),
+            asistencias,
+            faltas,
+            participantes,
+        };
+
+
+        const btn = document.getElementById('btn-guardar');
+        btn.disabled = true;
+        btn.textContent = 'Guardando...';
+
+        try {
+            const res = await fetch('/guardar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            const div = document.getElementById('resultado');
+            div.classList.remove('hidden');
+            if (data.status === 'success') {
+                div.className = 'mt-4 p-4 rounded-lg text-center font-semibold bg-green-100 text-green-700';
+                div.textContent = '✅ ¡Datos guardados correctamente!';
+                setTimeout(() => { window.location.href = '/'; }, 2000); // ← redirige después de 2 segundos
+            } else {
+                div.className = 'mt-4 p-4 rounded-lg text-center font-semibold bg-red-100 text-red-700';
+                div.textContent = `❌ Error: ${data.message}`;
+                btn.disabled = false;
+                btn.textContent = '💾 Guardar';
+            }
+        } catch (e) {
+            const div = document.getElementById('resultado');
+            div.classList.remove('hidden');
+            div.className = 'mt-4 p-4 rounded-lg text-center font-semibold bg-red-100 text-red-700';
+            div.textContent = `❌ Error de conexión: ${e.message}`;
+            btn.disabled = false;
+            btn.textContent = '💾 Guardar';
+        }
+    }
+
+</script>
+
+<script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/service-worker.js');
+        }
+    </script>
+</body>
+</html>
