@@ -29,3 +29,6 @@ Thumbs.db
 .vimrc
 .pythonstartup.py
 .gitconfig
+
+service_account.json
+CLAUDE.md

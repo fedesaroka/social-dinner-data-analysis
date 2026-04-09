@@ -6,8 +6,6 @@ from cena import DataCena
 from faltas import DataFaltas
 from participantes import DataParticipantes
 from datetime import datetime, timedelta
-import os
-import csv
 
 app = Flask(__name__)
 app.secret_key = "clave_secreta_mosca_2024"  # Cambiá esto por algo seguro
@@ -38,54 +36,22 @@ ASISTENTES = ["Axel Zielonka", "Federico Saroka", "Federico Cabelli", "Federico 
 
 RAZONES_FALTA = ["Enfermedad", "Trabajo", "Viaje", "Compromiso Familiar", "Estudio", "Cumpleaños", "Traicion","Otro"]
 
-CATEGORIAS_CSV = "/home/lamosca/comidas.csv"
-CASAS_CSV   = "/home/lamosca/casas.csv"
+# ── Helpers Sheets ───────────────────────────────────────────────────────────
+def leer_categorias(config):
+    valores = config.sheet_comidas.col_values(1)
+    return sorted(set(v.strip() for v in valores if v.strip()), key=str.lower)
 
-# ── Helpers CSV ──────────────────────────────────────────────────────────────
-def leer_categorias():
-    if not os.path.exists(CATEGORIAS_CSV):
-        return []
-    with open(CATEGORIAS_CSV, encoding="utf-8") as f:
-        lineas = [l.strip() for l in f.readlines() if l.strip()]
-    return sorted(set(lineas), key=str.lower)
+def leer_casas(config):
+    registros = config.sheet_casas.get_all_records()
+    return sorted((r["casa"].strip() for r in registros if r.get("casa", "").strip()), key=str.lower)
 
-def leer_casas():
-    casas = []
-    if not os.path.exists(CASAS_CSV):
-        return casas
-    with open(CASAS_CSV, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            nombre = row.get("casa", "").strip()
-            if nombre:
-                casas.append(nombre)
-    return sorted(casas, key=str.lower)
-
-def asegurar_salto_linea(path):
-    if not os.path.exists(path):
-        return
-    with open(path, "rb+") as f:
-        f.seek(0, os.SEEK_END)
-        if f.tell() == 0:
-            return
-        f.seek(-1, os.SEEK_END)
-        if f.read(1) != b"\n":
-            f.write(b"\n")
-
-def agregar_categoria_si_no_existe(nueva):
+def agregar_categoria_si_no_existe(nueva, config):
     nueva = (nueva or "").strip()
     if not nueva:
         return None
-    existentes = set(c.lower() for c in leer_categorias())
-    if nueva.lower() in existentes:
-        return nueva
-    file_exists = os.path.exists(CATEGORIAS_CSV)
-    asegurar_salto_linea(CATEGORIAS_CSV)
-    with open(CATEGORIAS_CSV, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["comida"])
-        writer.writerow([nueva])
+    existentes = set(c.lower() for c in leer_categorias(config))
+    if nueva.lower() not in existentes:
+        config.sheet_comidas.append_row([nueva])
     return nueva
 
 # ── Rutas ────────────────────────────────────────────────────────────────────
@@ -123,8 +89,8 @@ def index():
     col_id = config.sheet_data.col_values(1)
     id_cena = int(col_id[-1]) + 1
     fecha = datetime.now().strftime("%Y-%m-%d")
-    categorias = leer_categorias()
-    casas = leer_casas()
+    categorias = leer_categorias(config)
+    casas = leer_casas(config)
 
     # ── Última cena cargada ──────────────────────────────────────────────────
     ultima_cena = None
@@ -169,7 +135,7 @@ def guardar():
         cena = None
         faltas = DataFaltas(id_cena)
         if hay_asistentes:
-            data["categoria_comida"] = agregar_categoria_si_no_existe(data.get("categoria_comida"))
+            data["categoria_comida"] = agregar_categoria_si_no_existe(data.get("categoria_comida"), config)
             if not data["categoria_comida"]:
                 return jsonify({"status": "error", "message": "Categoria de comida vacía"}), 400
 
