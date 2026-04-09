@@ -45,6 +45,14 @@ def leer_casas(config):
     registros = config.sheet_casas.get_all_records()
     return sorted((r["casa"].strip() for r in registros if r.get("casa", "").strip()), key=str.lower)
 
+def leer_casas_coords(config):
+    registros = config.sheet_casas.get_all_records()
+    return {
+        r["casa"].strip(): (float(r["latitud"]), float(r["longitud"]))
+        for r in registros
+        if r.get("casa", "").strip() and r.get("latitud") and r.get("longitud")
+    }
+
 def agregar_categoria_si_no_existe(nueva, config):
     nueva = (nueva or "").strip()
     if not nueva:
@@ -151,7 +159,8 @@ def guardar():
                 faltas.cargar_falta(p, "no hubo cena", "")
 
 
-        participantes = DataParticipantes(id_cena, cena.casa if cena else "")
+        casas_coords = leer_casas_coords(config)
+        participantes = DataParticipantes(id_cena, cena.casa if cena else "", casas_coords)
         for p in data.get('participantes', []):
             participantes.cargar_data(p['nombre'], p['ida'], p['vuelta'], p['extras'])
 
