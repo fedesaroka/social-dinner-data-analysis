@@ -6,6 +6,10 @@ from cena import DataCena
 from faltas import DataFaltas
 from participantes import DataParticipantes
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = "clave_secreta_mosca_2024"  # Cambiá esto por algo seguro
@@ -160,7 +164,8 @@ def guardar():
 
 
         casas_coords = leer_casas_coords(config)
-        participantes = DataParticipantes(id_cena, cena.casa if cena else "", casas_coords)
+        ors_api_key = os.getenv("ORS_API_KEY")
+        participantes = DataParticipantes(id_cena, cena.casa if cena else "", casas_coords, ors_api_key)
         for p in data.get('participantes', []):
             participantes.cargar_data(p['nombre'], p['ida'], p['vuelta'], p['extras'])
 

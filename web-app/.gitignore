@@ -13,6 +13,7 @@ env/
 
 # Credenciales (IMPORTANTE)
 service_account.json
+.env
 
 # Archivos del sistema
 .DS_Store
@@ -30,5 +31,4 @@ Thumbs.db
 .pythonstartup.py
 .gitconfig
 
-service_account.json
 CLAUDE.md

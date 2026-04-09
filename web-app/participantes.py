@@ -1,11 +1,14 @@
-import math
+import requests
 
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-    return round(R * 2 * math.asin(math.sqrt(a)), 2)
+ORS_URL = "https://api.openrouteservice.org/v2/directions/driving-car"
+
+def _ors_distancia_km(lat1, lon1, lat2, lon2, api_key):
+    headers = {"Authorization": api_key}
+    params = {"start": f"{lon1},{lat1}", "end": f"{lon2},{lat2}"}
+    response = requests.get(ORS_URL, headers=headers, params=params, timeout=10)
+    response.raise_for_status()
+    metros = response.json()["features"][0]["properties"]["segments"][0]["distance"]
+    return round(metros / 1000, 2)
 
 
 class DataParticipantes:
@@ -13,10 +16,12 @@ class DataParticipantes:
     casa_cena: str
     participantes: dict[str, dict] = {}
 
-    def __init__(self, id, casa, casas_coords):
+    def __init__(self, id, casa, casas_coords, ors_api_key):
         self.id_cena = id
         self.casa_cena = casa
         self.casas_coords = casas_coords  # {nombre: (lat, lon)}
+        self.ors_api_key = ors_api_key
+        self._cache = {}  # evita llamadas duplicadas para el mismo par
 
     def cargar_data(self, nombre, ida, vuelta, extra):
         d_ida, d_vuelta, d_total = self._calcular_distancia(self.casa_cena, ida, vuelta)
@@ -39,6 +44,13 @@ class DataParticipantes:
             return 0
         coords_origen = self.casas_coords.get(origen)
         coords_destino = self.casas_coords.get(destino)
-        if coords_origen and coords_destino:
-            return haversine(coords_origen[0], coords_origen[1], coords_destino[0], coords_destino[1])
-        return 0
+        if not coords_origen or not coords_destino:
+            return 0
+        par = (origen, destino)
+        if par not in self._cache:
+            self._cache[par] = _ors_distancia_km(
+                coords_origen[0], coords_origen[1],
+                coords_destino[0], coords_destino[1],
+                self.ors_api_key
+            )
+        return self._cache[par]
