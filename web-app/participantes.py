@@ -48,9 +48,12 @@ class DataParticipantes:
             return 0
         par = (origen, destino)
         if par not in self._cache:
-            self._cache[par] = _ors_distancia_km(
-                coords_origen[0], coords_origen[1],
-                coords_destino[0], coords_destino[1],
-                self.ors_api_key
-            )
+            try:
+                self._cache[par] = _ors_distancia_km(
+                    coords_origen[0], coords_origen[1],
+                    coords_destino[0], coords_destino[1],
+                    self.ors_api_key
+                )
+            except Exception:
+                self._cache[par] = 0
         return self._cache[par]
