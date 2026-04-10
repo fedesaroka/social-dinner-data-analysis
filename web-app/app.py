@@ -109,6 +109,20 @@ def agregar_categoria_si_no_existe(nueva, config):
         config.sheet_comidas.append_row([nueva])
     return nueva
 
+def agregar_casa_si_no_existe(nombre, latitud, longitud, config):
+    nombre = (nombre or "").strip()
+    if not nombre:
+        return None
+    existentes = set(c.lower() for c in leer_casas(config))
+    if nombre.lower() not in existentes:
+        try:
+            lat = float(latitud) if latitud else ""
+            lon = float(longitud) if longitud else ""
+        except (ValueError, TypeError):
+            lat, lon = "", ""
+        config.sheet_casas.append_row([nombre, lat, lon])
+    return nombre
+
 # ── Rutas ────────────────────────────────────────────────────────────────────
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -215,6 +229,9 @@ def guardar():
             for p in ASISTENTES:
                 faltas.cargar_falta(p, "no hubo cena", "")
 
+
+        for nc in data.get('nuevas_casas', []):
+            agregar_casa_si_no_existe(nc.get('nombre'), nc.get('latitud'), nc.get('longitud'), config)
 
         casas_coords = leer_casas_coords(config)
         ors_api_key = os.getenv("ORS_API_KEY")

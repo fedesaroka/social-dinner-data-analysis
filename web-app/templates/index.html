@@ -171,12 +171,30 @@
 
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-600 mb-1">Casa</label>
-            <select id="casa" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
-                <option value="">-- Seleccionar casa --</option>
-                {% for casa in casas %}
-                <option value="{{ casa }}">{{ casa }}</option>
-                {% endfor %}
-            </select>
+            <div class="flex flex-col gap-2">
+                <select id="casa" onchange="sincronizarCasaCena()"
+                    class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <option value="">-- Seleccionar casa --</option>
+                    {% for casa in casas %}
+                    <option value="{{ casa }}">{{ casa }}</option>
+                    {% endfor %}
+                    <option value="__nueva__">+ Nueva casa...</option>
+                </select>
+                <div id="nueva-casa-cena" class="hidden flex flex-col gap-2">
+                    <input type="text" id="nueva-casa-cena-nombre" placeholder="Nombre (ej: Nico)"
+                        class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <div class="flex gap-2">
+                        <input type="text" id="nueva-casa-cena-direccion" placeholder="Dirección (ej: Av. Corrientes 1234, CABA)"
+                            class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                        <button type="button" onclick="geocodificarCasaCena()"
+                            class="bg-indigo-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-indigo-700 transition">Buscar</button>
+                    </div>
+                    <div id="nueva-casa-cena-resultados" class="hidden flex flex-col gap-1"></div>
+                    <p id="nueva-casa-cena-status" class="text-xs hidden"></p>
+                    <input type="hidden" id="nueva-casa-cena-lat">
+                    <input type="hidden" id="nueva-casa-cena-lon">
+                </div>
+            </div>
         </div>
 
         <div class="mb-4">
@@ -206,6 +224,25 @@
     <div id="step-5" class="step hidden">
         <h2 class="text-xl font-semibold text-gray-700 mb-6">🚗 Participantes</h2>
         <div id="participantes-container" class="space-y-4"></div>
+        <div id="nueva-casa-part" class="hidden mt-3 p-3 border border-indigo-200 rounded-xl bg-indigo-50">
+            <p class="text-sm font-semibold text-indigo-700 mb-2">Nueva casa</p>
+            <div class="flex flex-col gap-2">
+                <input type="text" id="nueva-casa-part-nombre" placeholder="Nombre (ej: Nico)"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <div class="flex gap-2">
+                    <input type="text" id="nueva-casa-part-direccion" placeholder="Dirección"
+                        class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <button type="button" onclick="geocodificarCasaPart()"
+                        class="bg-indigo-500 text-white rounded-lg px-3 py-2 text-sm font-medium hover:bg-indigo-600 transition">Buscar</button>
+                </div>
+                <div id="nueva-casa-part-resultados" class="hidden flex flex-col gap-1"></div>
+                <p id="nueva-casa-part-status" class="text-xs hidden"></p>
+                <input type="hidden" id="nueva-casa-part-lat">
+                <input type="hidden" id="nueva-casa-part-lon">
+                <button type="button" onclick="confirmarNuevaCasaPart()"
+                    class="w-full bg-indigo-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-indigo-700 transition">Agregar casa</button>
+            </div>
+        </div>
         <button type="button" onclick="agregarParticipante()"
             class="mt-4 w-full border-2 border-dashed border-indigo-300 text-indigo-500 rounded-lg py-2 hover:bg-indigo-50 transition font-semibold">
             + Agregar Participante
@@ -250,6 +287,10 @@
     const TOTAL_PASOS = 6;
     const asistencias = {};
     ASISTENTES.forEach(a => asistencias[a] = 0);
+
+    let casasDisponibles = [...CASAS];  // se expande al agregar casas nuevas
+    let nuevasCasas = [];               // [{nombre, latitud, longitud}]
+    let selectPendiente = null;         // el select que disparó el panel de nueva casa
 
 
     // ── Navegación ───────────────────────────────────────────────────────────
@@ -315,7 +356,7 @@
             const comida = obtenerCategoria();
             if (!comida) { alert('Por favor seleccioná o ingresá una comida.'); return false; }
             if (!document.getElementById('precio').value) { alert('Por favor ingresá el precio.'); return false; }
-            if (!document.getElementById('casa').value) { alert('Por favor seleccioná la casa.'); return false; }
+            if (!obtenerCasaCena()) { alert('Por favor seleccioná o ingresá la casa.'); return false; }
         }
         return true;
     }
@@ -379,6 +420,159 @@
             return document.getElementById('categoria_comida_nueva').value.trim();
         }
         return sel.value;
+    }
+
+    // ── Casa ─────────────────────────────────────────────────────────────────
+    function sincronizarCasaCena() {
+        const sel = document.getElementById('casa');
+        const div = document.getElementById('nueva-casa-cena');
+        if (sel.value === '__nueva__') {
+            div.classList.remove('hidden');
+            document.getElementById('nueva-casa-cena-nombre').focus();
+        } else {
+            div.classList.add('hidden');
+        }
+    }
+
+    function obtenerCasaCena() {
+        const sel = document.getElementById('casa');
+        if (sel.value === '__nueva__') {
+            return document.getElementById('nueva-casa-cena-nombre').value.trim();
+        }
+        return sel.value;
+    }
+
+    async function geocodificarCasaCena() {
+        const dir = document.getElementById('nueva-casa-cena-direccion').value.trim();
+        const status = document.getElementById('nueva-casa-cena-status');
+        const resultados = document.getElementById('nueva-casa-cena-resultados');
+        if (!dir) return;
+        resultados.innerHTML = '';
+        resultados.classList.add('hidden');
+        status.textContent = 'Buscando...';
+        status.className = 'text-xs text-gray-500';
+        status.classList.remove('hidden');
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(dir)}&format=json&limit=5`;
+            const res = await fetch(url, { headers: { 'Accept-Language': 'es' } });
+            const data = await res.json();
+            status.classList.add('hidden');
+            if (data.length === 0) {
+                status.textContent = 'No se encontró la dirección. Intentá ser más específico.';
+                status.className = 'text-xs text-red-500';
+                status.classList.remove('hidden');
+            } else {
+                resultados.classList.remove('hidden');
+                data.forEach(item => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'text-left text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white hover:bg-indigo-50 transition';
+                    btn.textContent = item.display_name;
+                    btn.onclick = () => {
+                        document.getElementById('nueva-casa-cena-lat').value = item.lat;
+                        document.getElementById('nueva-casa-cena-lon').value = item.lon;
+                        document.getElementById('nueva-casa-cena-direccion').value = item.display_name;
+                        resultados.innerHTML = '';
+                        resultados.classList.add('hidden');
+                    };
+                    resultados.appendChild(btn);
+                });
+            }
+        } catch (e) {
+            status.textContent = 'Error al buscar. Verificá tu conexión.';
+            status.className = 'text-xs text-red-500';
+            status.classList.remove('hidden');
+        }
+    }
+
+    function onCasaPartChange(selectEl) {
+        if (selectEl.value === '__nueva__') {
+            selectPendiente = selectEl;
+            document.getElementById('nueva-casa-part').classList.remove('hidden');
+            document.getElementById('nueva-casa-part-nombre').focus();
+        }
+    }
+
+    async function geocodificarCasaPart() {
+        const dir = document.getElementById('nueva-casa-part-direccion').value.trim();
+        const status = document.getElementById('nueva-casa-part-status');
+        const resultados = document.getElementById('nueva-casa-part-resultados');
+        if (!dir) return;
+        resultados.innerHTML = '';
+        resultados.classList.add('hidden');
+        status.textContent = 'Buscando...';
+        status.className = 'text-xs text-gray-500';
+        status.classList.remove('hidden');
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(dir)}&format=json&limit=5`;
+            const res = await fetch(url, { headers: { 'Accept-Language': 'es' } });
+            const data = await res.json();
+            status.classList.add('hidden');
+            if (data.length === 0) {
+                status.textContent = 'No se encontró. Intentá con otra dirección.';
+                status.className = 'text-xs text-red-500';
+                status.classList.remove('hidden');
+            } else {
+                resultados.classList.remove('hidden');
+                data.forEach(item => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'text-left text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white hover:bg-indigo-50 transition';
+                    btn.textContent = item.display_name;
+                    btn.onclick = () => {
+                        document.getElementById('nueva-casa-part-lat').value = item.lat;
+                        document.getElementById('nueva-casa-part-lon').value = item.lon;
+                        document.getElementById('nueva-casa-part-direccion').value = item.display_name;
+                        resultados.innerHTML = '';
+                        resultados.classList.add('hidden');
+                    };
+                    resultados.appendChild(btn);
+                });
+            }
+        } catch (e) {
+            status.textContent = 'Error al buscar.';
+            status.className = 'text-xs text-red-500';
+            status.classList.remove('hidden');
+        }
+    }
+
+    function confirmarNuevaCasaPart() {
+        const nombre = document.getElementById('nueva-casa-part-nombre').value.trim();
+        const lat = document.getElementById('nueva-casa-part-lat').value.trim();
+        const lon = document.getElementById('nueva-casa-part-lon').value.trim();
+        if (!nombre) { alert('Por favor ingresá el nombre de la casa.'); return; }
+
+        if (!nuevasCasas.find(c => c.nombre.toLowerCase() === nombre.toLowerCase())) {
+            nuevasCasas.push({ nombre, latitud: lat, longitud: lon });
+        }
+        if (!casasDisponibles.find(c => c.toLowerCase() === nombre.toLowerCase())) {
+            casasDisponibles.push(nombre);
+        }
+
+        // Agregar la nueva opción a todos los selects existentes de participantes
+        document.querySelectorAll('.part-ida, .part-vuelta').forEach(sel => {
+            const opt = document.createElement('option');
+            opt.value = nombre;
+            opt.textContent = nombre;
+            const nuevaOpt = sel.querySelector('[value="__nueva__"]');
+            sel.insertBefore(opt, nuevaOpt);
+        });
+
+        // Seleccionar la casa en el dropdown que disparó el panel
+        if (selectPendiente) {
+            selectPendiente.value = nombre;
+            selectPendiente = null;
+        }
+
+        // Ocultar y limpiar el panel
+        document.getElementById('nueva-casa-part').classList.add('hidden');
+        document.getElementById('nueva-casa-part-nombre').value = '';
+        document.getElementById('nueva-casa-part-direccion').value = '';
+        document.getElementById('nueva-casa-part-lat').value = '';
+        document.getElementById('nueva-casa-part-lon').value = '';
+        document.getElementById('nueva-casa-part-status').classList.add('hidden');
+        document.getElementById('nueva-casa-part-resultados').innerHTML = '';
+        document.getElementById('nueva-casa-part-resultados').classList.add('hidden');
     }
 
     function generarFaltasAutomaticas() {
@@ -445,9 +639,9 @@
         const opcionesAsistentes = ASISTENTES.map(a =>
             `<option value="${a}" ${a === nombrePreseleccionado ? 'selected' : ''}>${a}</option>`
         ).join('');
-        const opcionesCasas = CASAS.map(c =>
+        const opcionesCasas = casasDisponibles.map(c =>
             `<option value="${c}">${c}</option>`
-        ).join('');
+        ).join('') + `<option value="__nueva__">+ Nueva casa...</option>`;
 
         const div = document.createElement('div');
         div.className = 'bg-gray-50 rounded-xl p-4 space-y-2 border border-gray-200';
@@ -464,14 +658,16 @@
             <div class="grid grid-cols-2 gap-2">
                 <div>
                     <label class="text-xs text-gray-500 mb-1 block">Ida desde</label>
-                    <select class="part-ida w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <select class="part-ida w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        onchange="onCasaPartChange(this)">
                         <option value="">-- Casa --</option>
                         ${opcionesCasas}
                     </select>
                 </div>
                 <div>
                     <label class="text-xs text-gray-500 mb-1 block">Vuelta a</label>
-                    <select class="part-vuelta w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <select class="part-vuelta w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        onchange="onCasaPartChange(this)">
                         <option value="">-- Casa --</option>
                         ${opcionesCasas}
                     </select>
@@ -520,7 +716,7 @@
             <p>Categoría: <strong>${obtenerCategoria()}</strong></p>
             <p>Tipo: <strong>${document.getElementById('tipo_comida').value}</strong></p>
             <p>Precio: <strong>$${document.getElementById('precio').value}</strong></p>
-            <p>Casa: <strong>${document.getElementById('casa').value}</strong></p>
+            <p>Casa: <strong>${obtenerCasaCena()}</strong></p>
             <p>Quórum: <strong>${document.getElementById('quorum').value === 'true' ? 'Sí' : 'No'}</strong></p>
             <p>Realizada: <strong>${document.getElementById('realizada').value === 'true' ? 'Sí' : 'No'}</strong></p>
             <p>Tema: <strong>${document.getElementById('tema').value || '-'}</strong></p>
@@ -589,13 +785,21 @@
             categoria_comida: obtenerCategoria(),                              // ← desplegable
             tipo_comida:      document.getElementById('tipo_comida').value,   // ← cocinada/comprada
             precio:           parseFloat(document.getElementById('precio').value),
-            casa:             document.getElementById('casa').value,
+            casa:             obtenerCasaCena(),
             tema:             document.getElementById('tema').value,
             postre:           document.getElementById('postre').value,
             cant_personas:    parseInt(document.getElementById('cant_personas').value),
             asistencias,
             faltas,
             participantes,
+            nuevas_casas: [
+                ...nuevasCasas,
+                ...(document.getElementById('casa').value === '__nueva__' ? [{
+                    nombre:   document.getElementById('nueva-casa-cena-nombre').value.trim(),
+                    latitud:  document.getElementById('nueva-casa-cena-lat').value.trim(),
+                    longitud: document.getElementById('nueva-casa-cena-lon').value.trim(),
+                }] : []),
+            ],
         };
 
 
