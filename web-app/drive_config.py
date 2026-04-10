@@ -14,3 +14,4 @@ class DriveConfiguration:
         self.sheet_participantes = self.spreadsheet.worksheet("Cena participantes")
         self.sheet_casas = self.spreadsheet.worksheet("Casas")
         self.sheet_comidas = self.spreadsheet.worksheet("Comidas")
+        self.sheet_usuarios = self.spreadsheet.worksheet("Usuarios")

@@ -12,25 +12,68 @@ import os
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = "clave_secreta_mosca_2024"  # Cambiá esto por algo seguro
+app.secret_key = os.getenv("SECRET_KEY")
 
 # ── Flask-Login ──────────────────────────────────────────────────────────────
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = "login"  # Redirige a /login si no está autenticado
+login_manager.login_view = "login"
 
-# ── Usuario ──────────────────────────────────────────────────────────────────
-USUARIO = "admin"        # Cambiá esto
-CONTRASENA = "mosca123"  # Cambiá esto
+# ── Credenciales admin ───────────────────────────────────────────────────────
+USUARIO    = os.getenv("ADMIN_USER")
+CONTRASENA = os.getenv("ADMIN_PASSWORD")
 
+# ── Caché de usuarios readonly (de Google Sheets) ───────────────────────────
+_usuarios_cache      = {}   # {username: {"contrasena": ..., "participante": ...}}
+_usuarios_cache_time = None
+_CACHE_TTL           = timedelta(minutes=5)
+
+def _cargar_usuarios_sheets():
+    global _usuarios_cache, _usuarios_cache_time
+    ahora = datetime.now()
+    if _usuarios_cache_time and (ahora - _usuarios_cache_time) < _CACHE_TTL:
+        return _usuarios_cache
+    try:
+        config = DriveConfiguration()
+        rows = config.sheet_usuarios.get_all_records()
+        _usuarios_cache = {
+            r["user"].strip(): {
+                "contrasena":   str(r["pass"]).strip(),
+                "participante": r.get("participante", "").strip(),
+            }
+            for r in rows if r.get("user", "").strip()
+        }
+        _usuarios_cache_time = ahora
+    except Exception as e:
+        print(f"Error cargando usuarios desde Sheets: {e}")
+    return _usuarios_cache
+
+# ── Modelo de usuario ────────────────────────────────────────────────────────
 class Usuario(UserMixin):
-    def __init__(self, id):
-        self.id = id
+    """tipo: 'admin' | 'readonly' | 'invitado'"""
+    def __init__(self, id, tipo="admin", participante=None):
+        self.id          = id
+        self.tipo        = tipo
+        self.participante = participante
+
+    @property
+    def es_admin(self):
+        return self.tipo == "admin"
+
+    @property
+    def puede_guardar(self):
+        return self.tipo == "admin"
 
 @login_manager.user_loader
 def load_user(user_id):
-    if user_id == USUARIO or user_id == "invitado":
-        return Usuario(user_id)
+    if user_id == USUARIO:
+        return Usuario(user_id, tipo="admin")
+    if user_id == "invitado":
+        return Usuario(user_id, tipo="invitado")
+    usuarios = _cargar_usuarios_sheets()
+    if user_id in usuarios:
+        return Usuario(user_id, tipo="readonly",
+                       participante=usuarios[user_id]["participante"])
     return None
 
 # ── Datos ────────────────────────────────────────────────────────────────────
@@ -71,20 +114,27 @@ def agregar_categoria_si_no_existe(nueva, config):
 def login():
     error = None
     if request.method == 'POST':
-        usuario    = request.form.get('usuario')
-        contrasena = request.form.get('contrasena')
+        usuario    = request.form.get('usuario', '').strip()
+        contrasena = request.form.get('contrasena', '')
+
         if usuario == USUARIO and contrasena == CONTRASENA:
-            user = Usuario(usuario)
-            # Sesión expira en 1 hora
+            user = Usuario(usuario, tipo="admin")
             login_user(user, remember=True, duration=timedelta(hours=1))
             return redirect(url_for('index'))
-        else:
-            error = "Usuario o contraseña incorrectos"
+
+        usuarios = _cargar_usuarios_sheets()
+        if usuario in usuarios and usuarios[usuario]["contrasena"] == contrasena:
+            user = Usuario(usuario, tipo="readonly",
+                           participante=usuarios[usuario]["participante"])
+            login_user(user, remember=True, duration=timedelta(hours=1))
+            return redirect(url_for('stats'))
+
+        error = "Usuario o contraseña incorrectos"
     return render_template('login.html', error=error)
 
 @app.route('/login-invitado')
 def login_invitado():
-    user = Usuario("invitado")
+    user = Usuario("invitado", tipo="invitado")
     login_user(user, remember=False)
     return redirect(url_for('index'))
 
@@ -97,6 +147,9 @@ def logout():
 @app.route('/')
 @login_required
 def index():
+    if current_user.tipo == "readonly":
+        return redirect(url_for('stats'))
+
     config = DriveConfiguration()
     col_id = config.sheet_data.col_values(1)
     id_cena = int(col_id[-1]) + 1
@@ -123,13 +176,13 @@ def index():
 
     return render_template('index.html', asistentes=ASISTENTES, razones=RAZONES_FALTA,
                            comidas=categorias, casas=casas, id_cena=id_cena, fecha=fecha,
-                           ultima_cena=ultima_cena, es_invitado=current_user.id == "invitado")
+                           ultima_cena=ultima_cena, es_invitado=not current_user.puede_guardar)
 
 @app.route('/guardar', methods=['POST'])
 @login_required
 def guardar():
-    if current_user.id == "invitado":
-        return jsonify({"status": "error", "message": "Modo invitado: los datos no se guardan"}), 403
+    if not current_user.puede_guardar:
+        return jsonify({"status": "error", "message": "No tenés permiso para guardar datos"}), 403
 
     try:
         data = request.json
@@ -173,6 +226,193 @@ def guardar():
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/stats')
+@login_required
+def stats():
+    periodo = request.args.get('periodo', 'all')
+    datos = _calcular_stats(periodo)
+    return render_template('stats.html', datos=datos, periodo=periodo,
+                           participante=current_user.participante)
+
+
+def _calcular_stats(periodo):
+    hoy = datetime.now().date()
+    _PERIODOS = {
+        'month':   timedelta(days=30),
+        '3months': timedelta(days=90),
+        'year':    timedelta(days=365),
+    }
+    fecha_inicio = (hoy - _PERIODOS[periodo]) if periodo in _PERIODOS else None
+
+    def dentro(fecha_str):
+        if not fecha_inicio:
+            return True
+        try:
+            return datetime.strptime(fecha_str, "%Y-%m-%d").date() >= fecha_inicio
+        except Exception:
+            return False
+
+    config = DriveConfiguration()
+
+    # ── Data cena: fuente maestra de fechas, casas y precio por id_cena ──────
+    cena_rows   = config.sheet_data.get_all_values()
+    cena_header = [h.strip().lower() for h in (cena_rows[0] if cena_rows else [])]
+
+    def col(nombre):
+        try:
+            return cena_header.index(nombre.lower())
+        except ValueError:
+            return None
+
+    idx_id       = col('id_cena') if col('id_cena') is not None else 0
+    idx_fecha    = col('fecha')
+    idx_casa     = col('casa')
+    idx_precio   = col('precio')
+    idx_realizada = col('realizada')
+
+    ids_en_periodo  = set()          # id_cena (str) del período
+    precio_por_cena = {}             # {id_cena_str: precio} solo cenas realizadas
+    casas_count     = {}
+    cenas_realizadas = 0
+
+    for row in cena_rows[1:]:
+        fecha_str = row[idx_fecha] if idx_fecha is not None and len(row) > idx_fecha else ""
+        if not dentro(fecha_str):
+            continue
+
+        id_str = ""
+        try:
+            id_str = str(int(float(row[idx_id])))
+            ids_en_periodo.add(id_str)
+        except Exception:
+            pass
+
+        realizada = row[idx_realizada].strip().lower() if idx_realizada is not None and len(row) > idx_realizada else ""
+        if realizada == 'si' and id_str:
+            cenas_realizadas += 1
+            if idx_precio is not None and len(row) > idx_precio:
+                try:
+                    precio_por_cena[id_str] = float(row[idx_precio])
+                except (ValueError, TypeError):
+                    pass
+
+        if idx_casa is not None and len(row) > idx_casa:
+            casa = row[idx_casa].strip()
+            if casa:
+                casas_count[casa] = casas_count.get(casa, 0) + 1
+
+    casas_ranking = sorted(casas_count.items(), key=lambda x: x[1], reverse=True)
+
+    # ── Ranking de asistencias + plata gastada por persona ───────────────────
+    # (Data asistencia, filtrado por ids de Data cena)
+    asist_rows   = config.sheet_asistencia.get_all_values()
+    header_asist = asist_rows[0] if asist_rows else []
+    nombres      = header_asist[2:]   # columnas tras id_cena y fecha
+
+    conteo            = {n: 0.0 for n in nombres}
+    gastado_por_persona = {n: 0.0 for n in nombres}
+
+    for row in asist_rows[1:]:
+        id_row = row[0].strip() if row else ""
+        if fecha_inicio is not None and id_row not in ids_en_periodo:
+            continue
+        precio_cena = precio_por_cena.get(id_row, 0.0)
+        for i, nombre in enumerate(nombres):
+            try:
+                asist = float(row[i + 2])
+                if asist > 0:
+                    conteo[nombre] += 1
+                    gastado_por_persona[nombre] += precio_cena
+            except (ValueError, IndexError):
+                pass
+
+    ranking       = sorted(conteo.items(), key=lambda x: x[1], reverse=True)
+    total_gastado = sum(precio_por_cena.values())
+    promedio_cena = total_gastado / cenas_realizadas if cenas_realizadas else 0
+    promedio_gasto_por_persona = {
+        p: gastado_por_persona[p] / conteo[p]
+        for p in conteo if conteo[p] > 0
+    }
+
+    # ── Cena participantes: distancias, ida y vuelta más frecuentes ──────────
+    part_rows   = config.sheet_participantes.get_all_values()
+    part_header = [h.strip().lower() for h in (part_rows[0] if part_rows else [])]
+
+    # Orden fijo de columnas según escribir_en_drive_web:
+    # 0:id_cena 1:persona 2:ida 3:vuelta 4:dist_ida 5:dist_vuelta 6:dist_total 7:extras
+    def pcol(nombre, fallback):
+        try:
+            return part_header.index(nombre.lower())
+        except ValueError:
+            return fallback
+
+    pidx_id      = pcol('id_cena', 0)
+    pidx_persona = pcol('persona',  1)
+    pidx_ida     = pcol('ida',      2)
+    pidx_vuelta  = pcol('vuelta',   3)
+    pidx_dist    = pcol('distancia total', 6)
+
+
+    distancias    = {}   # {persona: km totales}
+    cenas_viajadas = {}  # {persona: cantidad de cenas con viaje}
+    conteo_ida    = {}   # {persona: {lugar: count}}
+    conteo_vuelta = {}   # {persona: {lugar: count}}
+
+    for row in part_rows[1:]:
+        id_row = row[pidx_id].strip() if pidx_id is not None and len(row) > pidx_id else ""
+        if fecha_inicio is not None and id_row not in ids_en_periodo:
+            continue
+
+        persona = row[pidx_persona].strip() if pidx_persona is not None and len(row) > pidx_persona else ""
+        if not persona:
+            continue
+
+        if pidx_dist is not None and len(row) > pidx_dist:
+            raw = row[pidx_dist].strip()
+            if raw:
+                try:
+                    km = float(raw.replace(',', '.'))
+                    if km > 0:
+                        distancias[persona] = distancias.get(persona, 0.0) + km
+                        cenas_viajadas[persona] = cenas_viajadas.get(persona, 0) + 1
+                except (ValueError, TypeError):
+                    pass
+
+        if pidx_ida is not None and len(row) > pidx_ida:
+            ida = row[pidx_ida].strip()
+            if ida:
+                conteo_ida.setdefault(persona, {})
+                conteo_ida[persona][ida] = conteo_ida[persona].get(ida, 0) + 1
+
+        if pidx_vuelta is not None and len(row) > pidx_vuelta:
+            vuelta = row[pidx_vuelta].strip()
+            if vuelta:
+                conteo_vuelta.setdefault(persona, {})
+                conteo_vuelta[persona][vuelta] = conteo_vuelta[persona].get(vuelta, 0) + 1
+
+    dist_ranking     = sorted(distancias.items(), key=lambda x: x[1], reverse=True)
+    dist_promedio    = {p: distancias[p] / cenas_viajadas[p] for p in distancias if cenas_viajadas.get(p)}
+
+    # Lugar más frecuente de ida y vuelta por persona
+    ida_frecuente    = {p: max(v.items(), key=lambda x: x[1])[0] for p, v in conteo_ida.items()}
+    vuelta_frecuente = {p: max(v.items(), key=lambda x: x[1])[0] for p, v in conteo_vuelta.items()}
+
+    return {
+        'ranking':             ranking,
+        'casas_ranking':       casas_ranking,
+        'total_gastado':       total_gastado,
+        'cenas_realizadas':    cenas_realizadas,
+        'promedio_cena':       promedio_cena,
+        'dist_ranking':        dist_ranking,
+        'ida_frecuente':       ida_frecuente,
+        'vuelta_frecuente':    vuelta_frecuente,
+        'dist_promedio':       dist_promedio,
+        'total_cenas':         len(ids_en_periodo),
+        'gastado_por_persona':          gastado_por_persona,
+        'promedio_gasto_por_persona':   promedio_gasto_por_persona,
+    }
 
 
 def escribir_en_drive_web(id_cena, fecha, asistencias, cena, faltas, participantes, config, hay_asistentes=True):
