@@ -341,7 +341,7 @@ def _calcular_stats(periodo, fecha_desde=None, fecha_hasta=None):
     idx_precio     = col('precio')
     idx_precio_usd = col('precio usd')
     idx_realizada  = col('realizada')
-    idx_comida     = col('comida')
+    idx_comida     = col('categoria comida')
 
     ids_en_periodo   = set()          # id_cena (str) del período
     precio_por_cena  = {}             # {id_cena_str: precio} solo cenas realizadas
