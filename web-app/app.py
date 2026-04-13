@@ -8,6 +8,7 @@ from participantes import DataParticipantes
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
+import requests
 
 load_dotenv()
 
@@ -28,10 +29,13 @@ _usuarios_cache      = {}   # {username: {"contrasena": ..., "participante": ...
 _usuarios_cache_time = None
 _CACHE_TTL           = timedelta(minutes=5)
 
+# ── Caché de estadísticas ────────────────────────────────────────────────────
+_stats_cache     = {}   # {(periodo, fecha_desde, fecha_hasta): (timestamp, datos)}
+_STATS_CACHE_TTL = timedelta(minutes=5)
+
 def _cargar_usuarios_sheets():
     global _usuarios_cache, _usuarios_cache_time
-    ahora = datetime.now()
-    if _usuarios_cache_time and (ahora - _usuarios_cache_time) < _CACHE_TTL:
+    if _usuarios_cache_time:
         return _usuarios_cache
     try:
         config = DriveConfiguration()
@@ -43,7 +47,7 @@ def _cargar_usuarios_sheets():
             }
             for r in rows if r.get("user", "").strip()
         }
-        _usuarios_cache_time = ahora
+        _usuarios_cache_time = datetime.now()
     except Exception as e:
         print(f"Error cargando usuarios desde Sheets: {e}")
     return _usuarios_cache
@@ -188,9 +192,18 @@ def index():
     except Exception as e:
         print(f"Error leyendo última cena: {e}")
 
-    return render_template('index.html', asistentes=ASISTENTES, razones=RAZONES_FALTA,
-                           comidas=categorias, casas=casas, id_cena=id_cena, fecha=fecha,
-                           ultima_cena=ultima_cena, es_invitado=not current_user.puede_guardar)
+    es_invitado = not current_user.puede_guardar
+    if es_invitado:
+        asistentes_render = [f"Persona {i+1}" for i in range(len(ASISTENTES))]
+        casas_render      = [f"Casa {i+1}" for i in range(len(casas))]
+        ultima_cena       = None
+    else:
+        asistentes_render = ASISTENTES
+        casas_render      = casas
+
+    return render_template('index.html', asistentes=asistentes_render, razones=RAZONES_FALTA,
+                           comidas=categorias, casas=casas_render, id_cena=id_cena, fecha=fecha,
+                           ultima_cena=ultima_cena, es_invitado=es_invitado)
 
 @app.route('/guardar', methods=['POST'])
 @login_required
@@ -222,6 +235,11 @@ def guardar():
                             data['comida'], data['categoria_comida'], data['tipo_comida'],
                             float(data['precio']), data['casa'], data['tema'],
                             data['postre'], data['cant_personas'])
+            cotizacion_blue = _obtener_cotizacion_blue()
+            if cotizacion_blue is None:
+                cena.precio_usd = -1
+            elif cena.precio:
+                cena.precio_usd = round(cena.precio / cotizacion_blue, 2)
 
             for f in data.get('faltas', []):
                 faltas.cargar_falta(f['nombre'], f['razon'], f['descripcion'])
@@ -240,6 +258,7 @@ def guardar():
             participantes.cargar_data(p['nombre'], p['ida'], p['vuelta'], p['extras'])
 
         escribir_en_drive_web(id_cena, fecha, asistencias, cena, faltas, participantes, config, hay_asistentes)
+        _stats_cache.clear()
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -248,13 +267,31 @@ def guardar():
 @app.route('/stats')
 @login_required
 def stats():
-    periodo = request.args.get('periodo', 'all')
-    datos = _calcular_stats(periodo)
+    periodo     = request.args.get('periodo', 'all')
+    fecha_desde = request.args.get('fecha_desde') or None
+    fecha_hasta = request.args.get('fecha_hasta') or None
+    datos = _calcular_stats(periodo, fecha_desde, fecha_hasta)
     return render_template('stats.html', datos=datos, periodo=periodo,
+                           fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
                            participante=current_user.participante)
 
 
-def _calcular_stats(periodo):
+def _obtener_cotizacion_blue():
+    """Retorna el valor de venta del dólar blue desde bluelytics.com.ar, o None si falla."""
+    try:
+        r = requests.get('https://api.bluelytics.com.ar/v2/latest', timeout=5)
+        return float(r.json()['blue']['value_sell'])
+    except Exception:
+        return None
+
+
+def _calcular_stats(periodo, fecha_desde=None, fecha_hasta=None):
+    global _stats_cache
+    cache_key = (periodo, fecha_desde, fecha_hasta)
+    cached = _stats_cache.get(cache_key)
+    if cached and datetime.now() - cached[0] < _STATS_CACHE_TTL:
+        return cached[1]
+
     hoy = datetime.now().date()
     _PERIODOS = {
         'month':   timedelta(days=30),
@@ -263,13 +300,28 @@ def _calcular_stats(periodo):
     }
     fecha_inicio = (hoy - _PERIODOS[periodo]) if periodo in _PERIODOS else None
 
+    # Rango personalizado de fechas
+    try:
+        fecha_desde_date = datetime.strptime(fecha_desde, "%Y-%m-%d").date() if fecha_desde else None
+    except Exception:
+        fecha_desde_date = None
+    try:
+        fecha_hasta_date = datetime.strptime(fecha_hasta, "%Y-%m-%d").date() if fecha_hasta else None
+    except Exception:
+        fecha_hasta_date = None
+
     def dentro(fecha_str):
-        if not fecha_inicio:
-            return True
         try:
-            return datetime.strptime(fecha_str, "%Y-%m-%d").date() >= fecha_inicio
+            f = datetime.strptime(fecha_str, "%Y-%m-%d").date()
         except Exception:
             return False
+        if fecha_inicio and f < fecha_inicio:
+            return False
+        if fecha_desde_date and f < fecha_desde_date:
+            return False
+        if fecha_hasta_date and f > fecha_hasta_date:
+            return False
+        return True
 
     config = DriveConfiguration()
 
@@ -283,15 +335,22 @@ def _calcular_stats(periodo):
         except ValueError:
             return None
 
-    idx_id       = col('id_cena') if col('id_cena') is not None else 0
-    idx_fecha    = col('fecha')
-    idx_casa     = col('casa')
-    idx_precio   = col('precio')
-    idx_realizada = col('realizada')
+    idx_id         = col('id_cena') if col('id_cena') is not None else 0
+    idx_fecha      = col('fecha')
+    idx_casa       = col('casa')
+    idx_precio     = col('precio')
+    idx_precio_usd = col('precio usd')
+    idx_realizada  = col('realizada')
+    idx_comida     = col('comida')
 
-    ids_en_periodo  = set()          # id_cena (str) del período
-    precio_por_cena = {}             # {id_cena_str: precio} solo cenas realizadas
-    casas_count     = {}
+    ids_en_periodo   = set()          # id_cena (str) del período
+    precio_por_cena  = {}             # {id_cena_str: precio} solo cenas realizadas
+    casas_count      = {}
+    comidas_count    = {}             # {comida: count} para ranking de comidas
+    comida_por_cena  = {}             # {id_cena_str: comida} solo realizadas
+    casa_por_cena    = {}             # {id_cena_str: casa} solo realizadas
+    total_gastado_usd = 0.0
+    cenas_con_usd    = 0             # cenas realizadas que tienen precio_usd > 0
     cenas_realizadas = 0
 
     for row in cena_rows[1:]:
@@ -314,13 +373,32 @@ def _calcular_stats(periodo):
                     precio_por_cena[id_str] = float(row[idx_precio])
                 except (ValueError, TypeError):
                     pass
+            if idx_precio_usd is not None and len(row) > idx_precio_usd:
+                try:
+                    usd = float(row[idx_precio_usd])
+                    if usd > 0:
+                        total_gastado_usd += usd
+                        cenas_con_usd += 1
+                except (ValueError, TypeError):
+                    pass
+            comida_str = row[idx_comida].strip() if idx_comida is not None and len(row) > idx_comida else ""
+            if comida_str:
+                comidas_count[comida_str] = comidas_count.get(comida_str, 0) + 1
+                comida_por_cena[id_str] = comida_str
+            casa_str = row[idx_casa].strip() if idx_casa is not None and len(row) > idx_casa else ""
+            if casa_str:
+                casa_por_cena[id_str] = casa_str
 
         if idx_casa is not None and len(row) > idx_casa:
             casa = row[idx_casa].strip()
             if casa:
                 casas_count[casa] = casas_count.get(casa, 0) + 1
 
-    casas_ranking = sorted(casas_count.items(), key=lambda x: x[1], reverse=True)
+    casas_ranking   = sorted(casas_count.items(), key=lambda x: x[1], reverse=True)
+    comidas_ranking = sorted(comidas_count.items(), key=lambda x: x[1], reverse=True)
+
+    # Indica si hay algún filtro temporal activo
+    filtro_activo = fecha_inicio is not None or fecha_desde_date is not None or fecha_hasta_date is not None
 
     # ── Ranking de asistencias + plata gastada por persona ───────────────────
     # (Data asistencia, filtrado por ids de Data cena)
@@ -328,26 +406,37 @@ def _calcular_stats(periodo):
     header_asist = asist_rows[0] if asist_rows else []
     nombres      = header_asist[2:]   # columnas tras id_cena y fecha
 
-    conteo            = {n: 0.0 for n in nombres}
+    conteo              = {n: 0.0 for n in nombres}
     gastado_por_persona = {n: 0.0 for n in nombres}
+    conteo_comida_persona     = {}   # {persona: {comida: count}}
+    conteo_lugar_cena_persona = {}   # {persona: {casa: count}}
 
     for row in asist_rows[1:]:
         id_row = row[0].strip() if row else ""
-        if fecha_inicio is not None and id_row not in ids_en_periodo:
+        if filtro_activo and id_row not in ids_en_periodo:
             continue
         precio_cena = precio_por_cena.get(id_row, 0.0)
+        comida_cena = comida_por_cena.get(id_row)
+        casa_cena   = casa_por_cena.get(id_row)
         for i, nombre in enumerate(nombres):
             try:
                 asist = float(row[i + 2])
                 if asist > 0:
                     conteo[nombre] += 1
                     gastado_por_persona[nombre] += precio_cena
+                    if comida_cena:
+                        conteo_comida_persona.setdefault(nombre, {})
+                        conteo_comida_persona[nombre][comida_cena] = conteo_comida_persona[nombre].get(comida_cena, 0) + 1
+                    if casa_cena:
+                        conteo_lugar_cena_persona.setdefault(nombre, {})
+                        conteo_lugar_cena_persona[nombre][casa_cena] = conteo_lugar_cena_persona[nombre].get(casa_cena, 0) + 1
             except (ValueError, IndexError):
                 pass
 
-    ranking       = sorted(conteo.items(), key=lambda x: x[1], reverse=True)
-    total_gastado = sum(precio_por_cena.values())
-    promedio_cena = total_gastado / cenas_realizadas if cenas_realizadas else 0
+    ranking           = sorted(conteo.items(), key=lambda x: x[1], reverse=True)
+    total_gastado     = sum(precio_por_cena.values())
+    promedio_cena     = total_gastado / cenas_realizadas if cenas_realizadas else 0
+    promedio_cena_usd = total_gastado_usd / cenas_con_usd if cenas_con_usd else None
     promedio_gasto_por_persona = {
         p: gastado_por_persona[p] / conteo[p]
         for p in conteo if conteo[p] > 0
@@ -379,7 +468,7 @@ def _calcular_stats(periodo):
 
     for row in part_rows[1:]:
         id_row = row[pidx_id].strip() if pidx_id is not None and len(row) > pidx_id else ""
-        if fecha_inicio is not None and id_row not in ids_en_periodo:
+        if filtro_activo and id_row not in ids_en_periodo:
             continue
 
         persona = row[pidx_persona].strip() if pidx_persona is not None and len(row) > pidx_persona else ""
@@ -416,9 +505,14 @@ def _calcular_stats(periodo):
     ida_frecuente    = {p: max(v.items(), key=lambda x: x[1])[0] for p, v in conteo_ida.items()}
     vuelta_frecuente = {p: max(v.items(), key=lambda x: x[1])[0] for p, v in conteo_vuelta.items()}
 
-    return {
+    # Comida y lugar de cena más frecuente por persona (Feature 4)
+    comida_frecuente_persona = {p: max(v, key=v.get) for p, v in conteo_comida_persona.items() if v}
+    lugar_cena_frecuente     = {p: max(v, key=v.get) for p, v in conteo_lugar_cena_persona.items() if v}
+
+    resultado = {
         'ranking':             ranking,
         'casas_ranking':       casas_ranking,
+        'comidas_ranking':     comidas_ranking,
         'total_gastado':       total_gastado,
         'cenas_realizadas':    cenas_realizadas,
         'promedio_cena':       promedio_cena,
@@ -429,7 +523,12 @@ def _calcular_stats(periodo):
         'total_cenas':         len(ids_en_periodo),
         'gastado_por_persona':          gastado_por_persona,
         'promedio_gasto_por_persona':   promedio_gasto_por_persona,
+        'comida_frecuente_persona':     comida_frecuente_persona,
+        'lugar_cena_frecuente':         lugar_cena_frecuente,
+        'promedio_cena_usd':            promedio_cena_usd,
     }
+    _stats_cache[cache_key] = (datetime.now(), resultado)
+    return resultado
 
 
 def escribir_en_drive_web(id_cena, fecha, asistencias, cena, faltas, participantes, config, hay_asistentes=True):

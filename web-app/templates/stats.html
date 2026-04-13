@@ -26,11 +26,40 @@
         {% for key, label in periodos %}
         <a href="/stats?periodo={{ key }}"
            class="px-4 py-2 rounded-full text-sm font-semibold transition
-                  {% if periodo == key %}bg-indigo-600 text-white shadow{% else %}bg-white text-gray-600 hover:bg-indigo-50 border border-gray-200{% endif %}">
+                  {% if periodo == key and not fecha_desde and not fecha_hasta %}bg-indigo-600 text-white shadow{% else %}bg-white text-gray-600 hover:bg-indigo-50 border border-gray-200{% endif %}">
             {{ label }}
         </a>
         {% endfor %}
     </div>
+
+    <!-- Filtro personalizado de fechas (Feature 5) -->
+    <form method="GET" action="/stats" class="mt-3 flex flex-wrap items-end gap-3">
+        <div class="flex flex-col">
+            <label class="text-xs text-gray-500 mb-1">Desde</label>
+            <input type="date" name="fecha_desde" value="{{ fecha_desde or '' }}"
+                   class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+        <div class="flex flex-col">
+            <label class="text-xs text-gray-500 mb-1">Hasta</label>
+            <input type="date" name="fecha_hasta" value="{{ fecha_hasta or '' }}"
+                   class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+        <button type="submit"
+                class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition">
+            Aplicar
+        </button>
+        {% if fecha_desde or fecha_hasta %}
+        <a href="/stats?periodo={{ periodo }}"
+           class="px-4 py-2 rounded-lg bg-gray-200 text-gray-600 text-sm font-semibold hover:bg-gray-300 transition">
+            Limpiar
+        </a>
+        {% endif %}
+    </form>
+    {% if fecha_desde or fecha_hasta %}
+    <div class="mt-2 inline-flex items-center gap-1 bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-1 rounded-full">
+        📅 Rango: {{ fecha_desde or '…' }} → {{ fecha_hasta or 'hoy' }}
+    </div>
+    {% endif %}
 </div>
 
 <!-- Stats personales (solo si el usuario tiene participante vinculado) -->
@@ -39,10 +68,10 @@
 {% set mi_distancia  = datos.dist_ranking | selectattr('0', 'equalto', participante) | list %}
 {% set mi_gastado    = datos.gastado_por_persona.get(participante, 0) %}
 
-<!-- Nivel 1: Tus stats -->
+<!-- Tus stats -->
 <div class="max-w-4xl mx-auto px-4 mt-6">
     <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Tus stats</h2>
-    <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+    <div class="grid grid-cols-2 gap-4 mb-4">
         <div class="bg-white rounded-2xl shadow p-5 text-center">
             <p class="text-3xl font-bold text-indigo-600">
                 {{ (mi_asistencia[0][1] | int) if mi_asistencia else '—' }}
@@ -59,23 +88,31 @@
             </p>
             <p class="text-base text-gray-500 mt-1">Posición ranking</p>
         </div>
-        <div class="bg-white rounded-2xl shadow p-5 text-center">
-            <p class="text-2xl font-bold text-green-600">
+    </div>
+    <div class="grid grid-cols-3 gap-2 sm:gap-4">
+        <div class="bg-white rounded-2xl shadow p-3 sm:p-5 text-center">
+            <p class="text-lg sm:text-2xl font-bold text-indigo-600 leading-tight">
                 ${{ "{:,.0f}".format(mi_gastado).replace(",", ".") }}
             </p>
-            <p class="text-base text-gray-500 mt-1">Plata gastada por vos</p>
+            <p class="text-xs sm:text-base text-gray-500 mt-1">Plata gastada por vos</p>
         </div>
-        <div class="bg-white rounded-2xl shadow p-5 text-center">
-            <p class="text-2xl font-bold text-green-600">
+        <div class="bg-white rounded-2xl shadow p-3 sm:p-5 text-center">
+            <p class="text-lg sm:text-2xl font-bold text-indigo-600 leading-tight">
                 {% set prom_gasto = datos.promedio_gasto_por_persona.get(participante) %}
                 {% if prom_gasto %}${{ "{:,.0f}".format(prom_gasto).replace(",", ".") }}{% else %}—{% endif %}
             </p>
-            <p class="text-base text-gray-500 mt-1">Precio promedio por cena</p>
+            <p class="text-xs sm:text-base text-gray-500 mt-1">Precio prom. por cena</p>
+        </div>
+        <div class="bg-white rounded-2xl shadow p-3 sm:p-5 text-center">
+            <p class="text-lg sm:text-2xl font-bold text-indigo-600 leading-tight">
+                {% if datos.promedio_cena_usd %}U$S {{ "%.0f"|format(datos.promedio_cena_usd) }}{% else %}—{% endif %}
+            </p>
+            <p class="text-xs sm:text-base text-gray-500 mt-1">Precio prom. (USD)</p>
         </div>
     </div>
 </div>
 
-<!-- Nivel 2 y 3: Stats geográficas y de movilidad -->
+<!-- Stats geográficas y de movilidad -->
 <div class="max-w-4xl mx-auto px-4 mt-6">
     <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Stats geográficas y de movilidad</h2>
     <div class="grid grid-cols-2 gap-4 mb-4">
@@ -108,9 +145,27 @@
         </div>
     </div>
 </div>
+
+<!-- Lugar de cena y comida más frecuente por persona (Feature 4) -->
+<div class="max-w-4xl mx-auto px-4 mt-4">
+    <div class="grid grid-cols-2 gap-4">
+        <div class="bg-white rounded-2xl shadow p-5 text-center">
+            <p class="text-2xl font-bold text-indigo-600 leading-tight">
+                {{ datos.lugar_cena_frecuente.get(participante, '—') }}
+            </p>
+            <p class="text-base text-gray-500 mt-1">Casa de cena más frecuente</p>
+        </div>
+        <div class="bg-white rounded-2xl shadow p-5 text-center">
+            <p class="text-2xl font-bold text-indigo-600 leading-tight">
+                {{ datos.comida_frecuente_persona.get(participante, '—') }}
+            </p>
+            <p class="text-base text-gray-500 mt-1">Comida más frecuente</p>
+        </div>
+    </div>
+</div>
 {% endif %}
 
-<!-- Nivel 4: Global -->
+<!-- Global -->
 <div class="max-w-4xl mx-auto px-4 mt-6">
     <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Global</h2>
     <div class="grid grid-cols-2 gap-4">
@@ -127,70 +182,168 @@
     </div>
 </div>
 
-<!-- Ranking de asistencias -->
+<!-- Rankings colapsables (Feature 3) -->
+
+<!-- Ranking de asistencias (Feature 3: colapsable) -->
 <div class="max-w-4xl mx-auto px-4 mt-6">
-    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Ranking de asistencias</h2>
-    <div class="bg-white rounded-2xl shadow overflow-hidden">
-        <table class="w-full text-sm">
-            <thead class="bg-gray-50 text-gray-500 text-xs uppercase">
-                <tr>
-                    <th class="px-4 py-3 text-left w-8">#</th>
-                    <th class="px-4 py-3 text-left">Participante</th>
-                    <th class="px-4 py-3 text-right">Asistencias</th>
-                    <th class="px-4 py-3 text-right hidden sm:table-cell">%</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-                {% set max_asist = datos.ranking[0][1] if datos.ranking and datos.ranking[0][1] > 0 else 1 %}
-                {% for nombre, asist in datos.ranking %}
-                <tr class="{% if participante and nombre == participante %}bg-indigo-50{% endif %}">
-                    <td class="px-4 py-3 text-gray-400 font-mono text-xs">{{ loop.index }}</td>
-                    <td class="px-4 py-3 font-medium text-gray-800">
-                        {{ nombre }}
-                        {% if participante and nombre == participante %}<span class="ml-1 text-indigo-400 text-xs">← vos</span>{% endif %}
-                    </td>
-                    <td class="px-4 py-3 text-right font-semibold text-indigo-600">{{ asist | int }}</td>
-                    <td class="px-4 py-3 text-right text-gray-400 hidden sm:table-cell">
-                        {% if datos.cenas_realizadas > 0 %}
-                            {{ "%.0f"|format(asist / datos.cenas_realizadas * 100) }}%
-                        {% else %}—{% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <button onclick="toggleRanking('ranking-asistencias', this)"
+            class="w-full flex items-center justify-between text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3 hover:text-gray-600 transition">
+        <span>Ranking de asistencias</span>
+        <span class="chevron text-lg">▾</span>
+    </button>
+    <div id="ranking-asistencias" class="hidden">
+        <div class="bg-white rounded-2xl shadow overflow-hidden">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-500 text-xs uppercase">
+                    <tr>
+                        <th class="px-4 py-3 text-left w-8">#</th>
+                        <th class="px-4 py-3 text-left">Participante</th>
+                        <th class="px-4 py-3 text-right">Asistencias</th>
+                        <th class="px-4 py-3 text-right table-cell">%</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% set max_asist = datos.ranking[0][1] if datos.ranking and datos.ranking[0][1] > 0 else 1 %}
+                    {% for nombre, asist in datos.ranking %}
+                    <tr class="{% if participante and nombre == participante %}bg-indigo-50{% endif %}">
+                        <td class="px-4 py-3 text-gray-400 font-mono text-xs">{{ loop.index }}</td>
+                        <td class="px-4 py-3 font-medium text-gray-800">
+                            {{ nombre }}
+                            {% if participante and nombre == participante %}<span class="ml-1 text-indigo-400 text-xs">← vos</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right font-semibold text-indigo-600">{{ asist | int }}</td>
+                        <td class="px-4 py-3 text-right text-gray-400 table-cell">
+                            {% if datos.cenas_realizadas > 0 %}
+                                {{ "%.0f"|format(asist / datos.cenas_realizadas * 100) }}%
+                            {% else %}—{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
-<!-- Casas -->
-<div class="max-w-4xl mx-auto px-4 mt-6 mb-10">
-    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Uso de casas</h2>
-    <div class="bg-white rounded-2xl shadow overflow-hidden">
-        <table class="w-full text-sm">
-            <thead class="bg-gray-50 text-gray-500 text-xs uppercase">
-                <tr>
-                    <th class="px-4 py-3 text-left">#</th>
-                    <th class="px-4 py-3 text-left">Casa</th>
-                    <th class="px-4 py-3 text-right">Veces</th>
-                    <th class="px-4 py-3 text-right hidden sm:table-cell">%</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-                {% set total_casas = datos.casas_ranking | sum(attribute=1) %}
-                {% for casa, veces in datos.casas_ranking %}
-                <tr>
-                    <td class="px-4 py-3 text-gray-400 font-mono text-xs">{{ loop.index }}</td>
-                    <td class="px-4 py-3 font-medium text-gray-800">{{ casa }}</td>
-                    <td class="px-4 py-3 text-right font-semibold text-indigo-600">{{ veces }}</td>
-                    <td class="px-4 py-3 text-right text-gray-400 hidden sm:table-cell">
-                        {% if total_casas > 0 %}{{ "%.0f"|format(veces / total_casas * 100) }}%{% else %}—{% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+<!-- Ranking de distancias (Feature 1 + 3) -->
+<div class="max-w-4xl mx-auto px-4 mt-6">
+    <button onclick="toggleRanking('ranking-distancias', this)"
+            class="w-full flex items-center justify-between text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3 hover:text-gray-600 transition">
+        <span>Ranking de distancias</span>
+        <span class="chevron text-lg">▾</span>
+    </button>
+    <div id="ranking-distancias" class="hidden">
+        <div class="bg-white rounded-2xl shadow overflow-hidden">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-500 text-xs uppercase">
+                    <tr>
+                        <th class="px-4 py-3 text-left w-8">#</th>
+                        <th class="px-4 py-3 text-left">Participante</th>
+                        <th class="px-4 py-3 text-right">Km totales</th>
+                        <th class="px-4 py-3 text-right table-cell">Km prom/cena</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for nombre, km in datos.dist_ranking %}
+                    <tr class="{% if participante and nombre == participante %}bg-indigo-50{% endif %}">
+                        <td class="px-4 py-3 text-gray-400 font-mono text-xs">{{ loop.index }}</td>
+                        <td class="px-4 py-3 font-medium text-gray-800">
+                            {{ nombre }}
+                            {% if participante and nombre == participante %}<span class="ml-1 text-indigo-400 text-xs">← vos</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right font-semibold text-indigo-600">{{ "%.0f"|format(km) }} km</td>
+                        <td class="px-4 py-3 text-right text-gray-400 table-cell">
+                            {% set prom = datos.dist_promedio.get(nombre) %}
+                            {% if prom %}{{ "%.1f"|format(prom) }} km{% else %}—{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
+
+<!-- Ranking de comidas (Feature 2 + 3) -->
+<div class="max-w-4xl mx-auto px-4 mt-6">
+    <button onclick="toggleRanking('ranking-comidas', this)"
+            class="w-full flex items-center justify-between text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3 hover:text-gray-600 transition">
+        <span>Ranking de comidas</span>
+        <span class="chevron text-lg">▾</span>
+    </button>
+    <div id="ranking-comidas" class="hidden">
+        <div class="bg-white rounded-2xl shadow overflow-hidden">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-500 text-xs uppercase">
+                    <tr>
+                        <th class="px-4 py-3 text-left w-8">#</th>
+                        <th class="px-4 py-3 text-left">Comida</th>
+                        <th class="px-4 py-3 text-right">Veces</th>
+                        <th class="px-4 py-3 text-right table-cell">%</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% set total_comidas = datos.comidas_ranking | sum(attribute=1) %}
+                    {% for comida, veces in datos.comidas_ranking %}
+                    <tr>
+                        <td class="px-4 py-3 text-gray-400 font-mono text-xs">{{ loop.index }}</td>
+                        <td class="px-4 py-3 font-medium text-gray-800">{{ comida }}</td>
+                        <td class="px-4 py-3 text-right font-semibold text-indigo-600">{{ veces }}</td>
+                        <td class="px-4 py-3 text-right text-gray-400 table-cell">
+                            {% if total_comidas > 0 %}{{ "%.0f"|format(veces / total_comidas * 100) }}%{% else %}—{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Uso de casas (Feature 3: colapsable) -->
+<div class="max-w-4xl mx-auto px-4 mt-6 mb-10">
+    <button onclick="toggleRanking('ranking-casas', this)"
+            class="w-full flex items-center justify-between text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3 hover:text-gray-600 transition">
+        <span>Uso de casas</span>
+        <span class="chevron text-lg">▾</span>
+    </button>
+    <div id="ranking-casas" class="hidden">
+        <div class="bg-white rounded-2xl shadow overflow-hidden">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-500 text-xs uppercase">
+                    <tr>
+                        <th class="px-4 py-3 text-left">#</th>
+                        <th class="px-4 py-3 text-left">Casa</th>
+                        <th class="px-4 py-3 text-right">Veces</th>
+                        <th class="px-4 py-3 text-right table-cell">%</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% set total_casas = datos.casas_ranking | sum(attribute=1) %}
+                    {% for casa, veces in datos.casas_ranking %}
+                    <tr>
+                        <td class="px-4 py-3 text-gray-400 font-mono text-xs">{{ loop.index }}</td>
+                        <td class="px-4 py-3 font-medium text-gray-800">{{ casa }}</td>
+                        <td class="px-4 py-3 text-right font-semibold text-indigo-600">{{ veces }}</td>
+                        <td class="px-4 py-3 text-right text-gray-400 table-cell">
+                            {% if total_casas > 0 %}{{ "%.0f"|format(veces / total_casas * 100) }}%{% else %}—{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleRanking(id, btn) {
+    const el = document.getElementById(id);
+    const chevron = btn.querySelector('.chevron');
+    const hidden = el.classList.toggle('hidden');
+    chevron.textContent = hidden ? '▾' : '▴';
+}
+</script>
 
 </body>
 </html>
